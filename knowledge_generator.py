@@ -62,11 +62,12 @@ class K_Engine():
         response = json.loads(urllib.urlopen(url).read())
         container={}
         for element in response['itemListElement']:
-            if element['result'].get('detailedDescription'):
-                container[element['result']['@id']]=[element['result']['name'],
-                element['result']['detailedDescription']['articleBody'].replace('\n', ' ')]
-            elif element['result'].get('description'):
-                container[element['result']['@id']]=[element['result']['name'], element['result']['description']]
+            if element['result'].get('name'):
+                if element['result'].get('detailedDescription'):
+                    container[element['result']['@id']]=[element['result']['name'],
+                    element['result']['detailedDescription']['articleBody'].replace('\n', ' ')]
+                elif element['result'].get('description'):
+                    container[element['result']['@id']]=[element['result']['name'], element['result']['description']]
         return container
 
     def keyextractor(self, sentence):
