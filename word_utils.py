@@ -56,9 +56,9 @@ class TextLoader():
     
 
     if not (os.path.exists(self.pos_path) and os.path.exists(self.neg_path) and os.path.exists(self.vocab_path) and 
-    os.path.exists(self.pos_dev_path) and os.path.exists(self.neg_dev_path)):
+    os.path.exists(self.pos_dev_path) and os.path.exists(self.neg_dev_path) and os.path.exists(self.unsup_path)):
       print ('preparing data') 
-      self.pos_path, self.neg_path, self.vocab_path, self.pos_dev_path, self.neg_dev_path = self.prepare_data(self.data_dir,self.vocab_size)
+      self.pos_path, self.neg_path, self.vocab_path, self.pos_dev_path, self.neg_dev_path, self.unsup_path = self.prepare_data(self.data_dir,self.vocab_size)
     else:
       print ('loading prepared file')
     self.data_set, self.valid_set = self.read_data(self.pos_path, self.neg_path)
@@ -69,16 +69,21 @@ class TextLoader():
     # the size if i-th training bucket, as used later.
     self.train_buckets_scale = [sum(self.train_bucket_sizes[:i + 1]) / self.train_total_size
                            for i in xrange(len(self.train_bucket_sizes))]
+
     #############calculating valid bucket scale#############
     self.valid_bucket_sizes = [len(self.valid_set[b]) for b in xrange(len(_buckets))]
     self.valid_total_size = float(sum(self.valid_bucket_sizes))
-    # A bucket scale is a list of increasing numbers from 0 to 1 that we'll use
-    # to select a bucket. Length of [scale[i], scale[i+1]] is proportional to
-    # the size if i-th training bucket, as used later.
     self.valid_buckets_scale = [sum(self.valid_bucket_sizes[:i + 1]) / self.valid_total_size
                            for i in xrange(len(self.valid_bucket_sizes))]                           
-    # print (self.train_buckets_scale)
     self.read_dev(self.pos_dev_path, self.neg_dev_path)
+
+    self.unsup_set = self.read_unsup_data(self.unsup_path)
+    #############calculating unsupervised bucket scale#############
+    self.unsup_bucket_sizes = [len(self.unsup_set[b]) for b in xrange(len(_buckets))]
+    self.unsup_total_size = float(sum(self.unsup_bucket_sizes))
+    self.unsup_buckets_scale = [sum(self.unsup_bucket_sizes[:i + 1]) / self.unsup_total_size
+                           for i in xrange(len(self.unsup_bucket_sizes))]                              
+
 
   def combine_file(self,data_dir):
     """
@@ -141,6 +146,18 @@ class TextLoader():
             else:
               vocab[word] = 1
       with gfile.GFile(data_path+"/neg.txt", mode="r") as f:
+        for line in f:
+          counter += 1
+          if counter % 100000 == 0:
+            print("  processing line %d" % counter)
+          tokens = tokenizer(line) if tokenizer else self.basic_tokenizer(line)
+          for w in tokens:
+            word = re.sub(_DIGIT_RE, "0", w) if normalize_digits else w
+            if word in vocab:
+              vocab[word] += 1
+            else:
+              vocab[word] = 1
+      with gfile.GFile(data_path+"/unsup.txt", mode="r") as f:
         for line in f:
           counter += 1
           if counter % 100000 == 0:
@@ -263,6 +280,7 @@ class TextLoader():
         (3) path to the vocabulary file.
         (4) path to the token-ids for pos dev(validation) data-set,
         (5) path to the token-ids for neg dev(validation) data-set,
+        (6) path to the token-ids for unsupervised data-set,
 
     """
     train_path = './data/train/'
@@ -279,14 +297,18 @@ class TextLoader():
     print (pos_path + ' combined' )
     neg_path = self.combine_file(dev_path+'neg')
     print (neg_path + ' combined' )
+    upsup_path = self.combine_file(dev_path+'unsup')
+    print (upsup_path + ' combined' )    
     vocab_path = os.path.join(data_dir, "vocab%d" % vocabulary_size)
     self.create_vocabulary(vocab_path, train_path, vocabulary_size)
 
     # Create token ids for the training data.
     pos_train_ids_path = train_path + ("/pos.ids%d" % vocabulary_size)
     neg_train_ids_path = train_path + ("/neg.ids%d" % vocabulary_size)
+    unsup_train_ids_path = train_path + ("/unsup.ids%d" % vocabulary_size)
     self.data_to_token_ids(train_path + "/pos.txt", pos_train_ids_path, vocab_path)
     self.data_to_token_ids(train_path + "/neg.txt", neg_train_ids_path, vocab_path)
+    self.data_to_token_ids(train_path + "/unsup.txt", unsup_train_ids_path, vocab_path)
 
     # Create token ids for the development data.
     pos_dev_ids_path = dev_path + ("/pos.ids%d" % vocabulary_size)
@@ -294,7 +316,8 @@ class TextLoader():
     self.data_to_token_ids(dev_path + "/pos.txt", pos_dev_ids_path, vocab_path)
     self.data_to_token_ids(dev_path + "/neg.txt", neg_dev_ids_path, vocab_path)
 
-    return (pos_train_ids_path, neg_train_ids_path, vocab_path,pos_dev_ids_path,neg_dev_ids_path)
+    return (pos_train_ids_path, neg_train_ids_path, vocab_path, 
+      pos_dev_ids_path, neg_dev_ids_path, unsup_train_ids_path)
 
 
   def read_data(self, pos_path, neg_path, max_size=None):
@@ -344,6 +367,40 @@ class TextLoader():
           pos, neg = pos_file.readline(), neg_file.readline()
     return data_set, valid_set
 
+  def read_unsup_data(self, unsup_path, max_size=None):
+    """Read data from source and target files and put into buckets.
+
+    Args:
+      source_path: path to the files with token-ids for the source language.
+      target_path: path to the file with token-ids for the target language;
+        it must be aligned with the source file: n-th line contains the desired
+        output for n-th line from the source_path.
+      max_size: maximum number of lines to read, all other will be ignored;
+        if 0 or None, data files will be read completely (no limit).
+
+    Returns:
+      data_set: a list of length len(_buckets); data_set[n] contains a list of
+        (source, target) pairs read from the provided data files that fit
+        into the n-th bucket, i.e., such that len(source) < _buckets[n][0] and
+        len(target) < _buckets[n][1]; source and target are lists of token-ids.
+    """
+    unsup_set = [[] for _ in _buckets]
+    with tf.gfile.GFile(unsup_path, mode="r") as unsup_file:
+      unsup = unsup_file.readline()
+      counter = 0
+      while unsup and (not max_size or counter < max_size):
+        counter += 1
+        if counter % 100000 == 0:
+          print("  reading data line %d" % counter)
+          sys.stdout.flush()
+        unsup_ids = [int(x) for x in unsup.split()]
+        for bucket_id, (unsup_size, sentiment) in enumerate(_buckets):
+          if len(unsup_ids) < unsup_size:
+            unsup_set[bucket_id].append([unsup_ids])
+            break
+        unsup = unsup_file.readline()
+    return unsup_set
+
   def read_dev(self, pos_path, neg_path, max_size=None):
     """Read data from source and target files and put into buckets.
 
@@ -391,6 +448,13 @@ class TextLoader():
     bucket_id = min([i for i in xrange(len(self.train_buckets_scale))
                      if self.train_buckets_scale[i] > random_number_01])
     x, y, z= self.get_batch(self.data_set, bucket_id)
+    return x, y, z
+
+  def next_unsup(self):
+    random_number_01 = np.random.random_sample()
+    bucket_id = min([i for i in xrange(len(self.unsup_buckets_scale))
+                     if self.unsup_buckets_scale[i] > random_number_01])
+    x, y, z= self.get_unsup(self.unsup_set, bucket_id)
     return x, y, z
 
   def next_valid(self,bucket_id):
@@ -483,7 +547,54 @@ class TextLoader():
     # print (len(batch_decoder_inputs[0]), bucket_id)
     return batch_encoder_inputs, batch_decoder_inputs, bucket_id
 
+  def get_unsup(self, data, bucket_id):
+    """Get a random batch of data from the specified bucket, prepare for step.
 
+    To feed data in step(..) it must be a list of batch-major vectors, while
+    data here contains single length-major cases. So the main logic of this
+    function is to re-index data cases to be in the proper format for feeding.
+
+    Args:
+      data: a tuple of size len(self.buckets) in which each element contains
+        lists of pairs of input and output data that we use to create a batch.
+      bucket_id: integer, which bucket to get the batch for.
+
+    Returns:
+      The triple (encoder_inputs, decoder_inputs, target_weights) for
+      the constructed batch that has the proper format to call step(...) later.
+    """
+    encoder_size, decoder_size = self.buckets[bucket_id]
+    encoder_inputs, decoder_inputs = [], []
+
+    # Get a random batch of encoder and decoder inputs from data,
+    # pad them if needed, reverse encoder inputs and add GO to decoder.
+    for _ in xrange(self.batch_size):
+      encoder_input, decoder_input = random.choice(data[bucket_id])
+
+      # Encoder inputs are padded and then reversed.
+      encoder_pad = [data_utils.PAD_ID] * (encoder_size - len(encoder_input))
+      encoder_inputs.append(list(reversed(encoder_input + encoder_pad)))
+
+      # Decoder inputs are padded.
+      decoder_pad_size = decoder_size - len(decoder_input)
+      decoder_inputs.append(decoder_input + [data_utils.PAD_ID] * decoder_pad_size)
+
+    # Now we create batch-major vectors from the data selected above.
+    batch_encoder_inputs, batch_decoder_inputs = [], []
+
+    # Batch encoder inputs are just re-indexed encoder_inputs.
+    for length_idx in xrange(encoder_size):
+      batch_encoder_inputs.append(
+          np.array([encoder_inputs[batch_idx][length_idx]
+                    for batch_idx in xrange(self.batch_size)], dtype=np.int32))
+
+    # Batch decoder inputs are re-indexed decoder_inputs, we create weights.
+    for length_idx in xrange(decoder_size):
+      batch_decoder_inputs.append(
+          np.array([decoder_inputs[batch_idx][length_idx]
+                    for batch_idx in xrange(self.batch_size)], dtype=np.int32))
+
+    return batch_encoder_inputs, batch_decoder_inputs
 
 
 
