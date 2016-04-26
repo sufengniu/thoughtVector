@@ -36,12 +36,14 @@ GO_ID = 4
 _WORD_SPLIT = re.compile("([.,!?\"':;)(])")
 _DIGIT_RE = re.compile(r"\d")
 _buckets = [(80, 1), (160, 1), (320, 1), (640, 1), (1280,1)]
+unsup_buckets = [(80, 80), (160, 160), (320, 320), (640, 640), (1280,1280)]
 
 
 class TextLoader():
 
   def __init__(self,data_dir,batch_size, vocab_size):
     self.buckets = _buckets
+    self.unsup_buckets = unsup_buckets
     self.data_dir = data_dir
     self.batch_size = batch_size
     self.vocab_size = vocab_size
@@ -79,7 +81,7 @@ class TextLoader():
 
     self.unsup_set = self.read_unsup_data(self.unsup_path)
     #############calculating unsupervised bucket scale#############
-    self.unsup_bucket_sizes = [len(self.unsup_set[b]) for b in xrange(len(_buckets))]
+    self.unsup_bucket_sizes = [len(self.unsup_set[b]) for b in xrange(len(unsup_buckets))]
     self.unsup_total_size = float(sum(self.unsup_bucket_sizes))
     self.unsup_buckets_scale = [sum(self.unsup_bucket_sizes[:i + 1]) / self.unsup_total_size
                            for i in xrange(len(self.unsup_bucket_sizes))]                              
@@ -396,7 +398,7 @@ class TextLoader():
         unsup_ids = [int(x) for x in unsup.split()]
         for bucket_id, (unsup_size, sentiment) in enumerate(_buckets):
           if len(unsup_ids) < unsup_size:
-            unsup_set[bucket_id].append([unsup_ids])
+            unsup_set[bucket_id].append(unsup_ids)
             break
         unsup = unsup_file.readline()
     return unsup_set
@@ -563,21 +565,21 @@ class TextLoader():
       The triple (encoder_inputs, decoder_inputs, target_weights) for
       the constructed batch that has the proper format to call step(...) later.
     """
-    encoder_size, decoder_size = self.buckets[bucket_id]
+    encoder_size, decoder_size = self.unsup_buckets[bucket_id]
     encoder_inputs, decoder_inputs = [], []
 
     # Get a random batch of encoder and decoder inputs from data,
     # pad them if needed, reverse encoder inputs and add GO to decoder.
     for _ in xrange(self.batch_size):
-      encoder_input, decoder_input = random.choice(data[bucket_id])
-
+      encoder_input = random.choice(data[bucket_id])
+      decoder_input = encoder_input
       # Encoder inputs are padded and then reversed.
-      encoder_pad = [data_utils.PAD_ID] * (encoder_size - len(encoder_input))
-      encoder_inputs.append(list(reversed(encoder_input + encoder_pad)))
+      encoder_pad = [PAD_ID] * (encoder_size - len(encoder_input))
+      encoder_inputs.append(list(encoder_input + encoder_pad))
 
       # Decoder inputs are padded.
       decoder_pad_size = decoder_size - len(decoder_input)
-      decoder_inputs.append(decoder_input + [data_utils.PAD_ID] * decoder_pad_size)
+      decoder_inputs.append(decoder_input + [PAD_ID] * decoder_pad_size)
 
     # Now we create batch-major vectors from the data selected above.
     batch_encoder_inputs, batch_decoder_inputs = [], []
@@ -594,7 +596,7 @@ class TextLoader():
           np.array([decoder_inputs[batch_idx][length_idx]
                     for batch_idx in xrange(self.batch_size)], dtype=np.int32))
 
-    return batch_encoder_inputs, batch_decoder_inputs
+    return batch_encoder_inputs, batch_decoder_inputs, bucket_id
 
 
 
@@ -605,4 +607,7 @@ print (y[0])
 x, y, z= f.next_dev()
 print (x[1])
 print (y[0])
+
+x, y, z = f.next_unsup()
+print (x)
 
