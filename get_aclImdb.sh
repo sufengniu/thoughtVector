@@ -8,5 +8,5 @@ echo "unzuipping..."
 
 tar xvf aclImdb_v1.tar.gz
 mv aclImdb data
-
+rm *.gz
 echo "Done ."
