@@ -586,8 +586,9 @@ class TextLoader():
       encoder_inputs.append(list(encoder_input + encoder_pad))
 
       # Decoder inputs are padded.
-      decoder_pad_size = decoder_size - len(decoder_input)
-      decoder_inputs.append(decoder_input + [PAD_ID] * decoder_pad_size)
+      decoder_pad_size = decoder_size - len(decoder_input) - 1
+      decoder_inputs.append([GO_ID] + decoder_input +
+                            [PAD_ID] * decoder_pad_size)
 
     # Now we create batch-major vectors from the data selected above.
     batch_encoder_inputs, batch_decoder_inputs = [], []
@@ -608,7 +609,7 @@ class TextLoader():
 
 
 
-f = TextLoader('data',64,80000)
+f = TextLoader('data',4,80000)
 x, y, z= f.next_batch()
 print (x[1])
 print (y[0])
@@ -618,7 +619,9 @@ print (y[0])
 
 x, y, z = f.next_unsup()
 print (x)
+print (y)
 
-x, y = f.next_unsup_valid(1)
-print (x)
+# x, y = f.next_unsup_valid(1)
+# print (x)
+
 
