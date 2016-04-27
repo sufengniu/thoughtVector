@@ -79,7 +79,7 @@ class TextLoader():
                            for i in xrange(len(self.valid_bucket_sizes))]                           
     self.read_dev(self.pos_dev_path, self.neg_dev_path)
 
-    self.unsup_set = self.read_unsup_data(self.unsup_path)
+    self.unsup_set, self.unsup_valid_set = self.read_unsup_data(self.unsup_path)
     #############calculating unsupervised bucket scale#############
     self.unsup_bucket_sizes = [len(self.unsup_set[b]) for b in xrange(len(unsup_buckets))]
     self.unsup_total_size = float(sum(self.unsup_bucket_sizes))
@@ -387,6 +387,7 @@ class TextLoader():
         len(target) < _buckets[n][1]; source and target are lists of token-ids.
     """
     unsup_set = [[] for _ in _buckets]
+    unsup_valid_set = [[] for _ in _buckets]
     with tf.gfile.GFile(unsup_path, mode="r") as unsup_file:
       unsup = unsup_file.readline()
       counter = 0
@@ -398,10 +399,13 @@ class TextLoader():
         unsup_ids = [int(x) for x in unsup.split()]
         for bucket_id, (unsup_size, sentiment) in enumerate(_buckets):
           if len(unsup_ids) < unsup_size:
-            unsup_set[bucket_id].append(unsup_ids)
+            if counter % 9 == 0:
+              unsup_set[bucket_id].append(unsup_ids)
+            else:
+              unsup_valid_set[bucket_id].append(unsup_ids)
             break
         unsup = unsup_file.readline()
-    return unsup_set
+    return unsup_set, unsup_valid_set
 
   def read_dev(self, pos_path, neg_path, max_size=None):
     """Read data from source and target files and put into buckets.
@@ -458,6 +462,10 @@ class TextLoader():
                      if self.unsup_buckets_scale[i] > random_number_01])
     x, y, z= self.get_unsup(self.unsup_set, bucket_id)
     return x, y, z
+
+  def next_unsup_valid(self,bucket_id):
+    x, y, z= self.get_unsup(self.unsup_valid_set, bucket_id)
+    return x, y
 
   def next_valid(self,bucket_id):
     x, y, z= self.get_batch(self.valid_set, bucket_id)
@@ -609,5 +617,8 @@ print (x[1])
 print (y[0])
 
 x, y, z = f.next_unsup()
+print (x)
+
+x, y = f.next_unsup_valid(1)
 print (x)
 
