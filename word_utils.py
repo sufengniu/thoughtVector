@@ -628,10 +628,10 @@ class TextLoader():
 
 
 
-f = TextLoader('data',4,80000)
-x, y, z= f.next_batch()
-for e in f.token_ids_to_sentence(x,z):
-  print(' '.join(s for s in e))
+#f = TextLoader('data',4,80000)
+#x, y, z= f.next_batch()
+#for e in f.token_ids_to_sentence(x,z):
+#  print(' '.join(s for s in e))
 # print (y[0])
 # x, y, z= f.next_dev()
 # print (x[1])

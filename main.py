@@ -38,8 +38,8 @@ flags.DEFINE_float("dropout", 0.8, "dropout rates")
 flags.DEFINE_float("max_gradient_norm", 5.0, "Clip gradients to this norm.")
 flags.DEFINE_integer("batch_size", 4, "Batch size to use during training.")
 flags.DEFINE_integer("max_len", 100, "sequence length longer than this will be ignored.")
-flags.DEFINE_integer("embedding_size", 128, "Size of each model layer.")
-flags.DEFINE_integer("depth", 3, "Number of layers in the model.")
+flags.DEFINE_integer("embedding_size", 16, "Size of each model layer.")
+flags.DEFINE_integer("depth", 1, "Number of layers in the model.")
 flags.DEFINE_integer("vocab_size", 100000, "vocabulary size.")
 flags.DEFINE_string("data_dir", "data", "Data directory")
 flags.DEFINE_string("train_dir", "data", "Training directory.")
@@ -134,6 +134,8 @@ class rnnAutoEncoder(object):
 				self.gradient_norms.append(norm)
 				self.updates.append(opt.apply_gradients(
 					zip(clipped_gradients, params), global_step=self.global_step))
+
+		self.saver = tf.train.Saver(tf.all_variables())
 
 	def layer_step(self, session, X, bucket_id, forward_only):
 		encoder_size, decoder_size = self.buckets[bucket_id]
@@ -347,10 +349,19 @@ def main(_):
 					step_time, loss = 0.0, 0.0
 					# Run evals on development set and print their perplexity.
 					for bucket_id in xrange(len(unsup_buckets)):
-						encoder_inputs, decoder_inputs, bucket_id = sentiment_data.next_unsup_valid()
-						_, eval_loss, _ = model_l[i].layer_step(sess, _encoder_inputs[i], _bucket_id, True)
+						encoder_inputs, decoder_inputs = sentiment_data.next_unsup_valid(bucket_id)
+						_, eval_loss, decoder_outputs = model_l[i].layer_step(sess, _encoder_inputs[i], bucket_id, True)
 						eval_ppx = math.exp(eval_loss) if eval_loss < 300 else float('inf')
-						print("  eval: bucket %d perplexity %.2f" % (_bucket_id, eval_ppx))
+						print("  eval: bucket %d perplexity %.2f" % (bucket_id, eval_ppx))
+
+						# for testing purpose
+						encoder_str = sentiment_data.token_ids_to_sentence(encoder_list, bucket_id)
+						decoder_str = sentiment_data.token_ids_to_sentence(decoder_list, bucket_id)
+						encoder_sample_str = ' '.join(encoder_str[0][0:40])
+						decoder_sample_str = ' '.join(decoder_str[0][0:40])
+						print("input string: " encoder_sample_str)
+						print("output string: " decoder_sample_str)
+
 					sys.stdout.flush()
 					if (loss < 0.1) or (current_step > max_step):
 						print("unsupervised training done, global step %d, perplexity: %.2f, learning rate %.4f"
