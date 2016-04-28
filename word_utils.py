@@ -51,12 +51,11 @@ class TextLoader():
     self.neg_path = self.data_dir + ("/train/neg.ids%d" % self.vocab_size)
     self.unsup_path = self.data_dir + ("/train/unsup.ids%d" % self.vocab_size)
     self.vocab_path = self.data_dir + ("/vocab%d" % self.vocab_size)
-    self.o_vocab_path = self.data_dir + ("/o_vocab%d" % self.vocab_size)
     self.pos_dev_path = self.data_dir + ("/test/pos.ids%d" % self.vocab_size)
     self.neg_dev_path = self.data_dir + ("/test/neg.ids%d" % self.vocab_size)
     self.dev_counter = -1
     
-
+    _, self.re_vocab = self.initialize_vocabulary(self.vocab_path)
     if not (os.path.exists(self.pos_path) and os.path.exists(self.neg_path) and os.path.exists(self.vocab_path) and 
     os.path.exists(self.pos_dev_path) and os.path.exists(self.neg_dev_path) and os.path.exists(self.unsup_path)):
       print ('preparing data') 
@@ -211,7 +210,7 @@ class TextLoader():
 
   def sentence_to_token_ids(self, sentence, vocabulary,
                             tokenizer=None, normalize_digits=True):
-    """Convert a string to list of integers representing token-ids.
+    """Convert a string to list of integers representing token-ids to word sentence.
 
     For example, a sentence "I have a dog" may become tokenized into
     ["I", "have", "a", "dog"] and with vocabulary {"I": 1, "have": 2,
@@ -236,6 +235,26 @@ class TextLoader():
     # Normalize digits by 0 before looking words up in the vocabulary.
     return [vocabulary.get(re.sub(_DIGIT_RE, "0", w), UNK_ID) for w in words]
 
+  def token_ids_to_sentence(self, batch, bucket_id):
+    """Convert a string to list of integers representing token-ids.
+
+    For example, a tokenized sentence [1, 2, 4, 7]  may become into
+    ["I", "have", "a", "dog"] and with vocabulary {1 : "I", 2 : "have",
+    4:"a", 7: "dog"} this function will return .
+
+    Args:
+      sentence: a string, the sentence of token-ids.
+
+    Returns:
+      a list of word, the words for the sentence.
+    """
+    sentence_converted = []
+    for outputs in range(self.batch_size):
+      sentence_converted.append([])
+    for outputs in range(self.buckets[bucket_id][0]):
+      for output in range(self.batch_size):
+        sentence_converted[output].append(self.re_vocab[batch[outputs][output]])
+    return sentence_converted
 
   def data_to_token_ids(self, data_path, target_path, vocabulary_path,
                         tokenizer=None, normalize_digits=True):
@@ -611,17 +630,13 @@ class TextLoader():
 
 f = TextLoader('data',4,80000)
 x, y, z= f.next_batch()
-print (x[1])
-print (y[0])
-x, y, z= f.next_dev()
-print (x[1])
-print (y[0])
+for e in f.token_ids_to_sentence(x,z):
+  print(' '.join(s for s in e))
+# print (y[0])
+# x, y, z= f.next_dev()
+# print (x[1])
+# print (y[0])
 
-x, y, z = f.next_unsup()
-print (x)
-print (y)
-
-# x, y = f.next_unsup_valid(1)
+# x, y, z = f.next_unsup()
 # print (x)
-
-
+# print (y)
