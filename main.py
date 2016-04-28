@@ -38,8 +38,8 @@ flags.DEFINE_float("dropout", 0.8, "dropout rates")
 flags.DEFINE_float("max_gradient_norm", 5.0, "Clip gradients to this norm.")
 flags.DEFINE_integer("batch_size", 4, "Batch size to use during training.")
 flags.DEFINE_integer("max_len", 100, "sequence length longer than this will be ignored.")
-flags.DEFINE_integer("embedding_size", 16, "Size of each model layer.")
-flags.DEFINE_integer("depth", 1, "Number of layers in the model.")
+flags.DEFINE_integer("embedding_size", 128, "Size of each model layer.")
+flags.DEFINE_integer("depth", 3, "Number of layers in the model.")
 flags.DEFINE_integer("vocab_size", 100000, "vocabulary size.")
 flags.DEFINE_string("data_dir", "data", "Data directory")
 flags.DEFINE_string("train_dir", "data", "Training directory.")
@@ -68,6 +68,8 @@ class rnnAutoEncoder(object):
 	def __init__(self, size, buckets, dropout, max_gradient_norm=5.0, 
 			batch_size=64, learning_rate=0.5, forward_only=False, trainable=False):
 
+		self.batch_size = batch_size
+		self.buckets = buckets
 		self.learning_rate = tf.Variable(float(learning_rate), trainable=trainable)
 		self.global_step = tf.Variable(0, trainable=trainable, name='global_step')
 
@@ -150,7 +152,7 @@ class rnnAutoEncoder(object):
 		for l in xrange(encoder_size):
 			input_feed[self.encoder_inputs[l].name] = X[l]
 		for l in xrange(decoder_size):
-			input_feed[self.encoder_inputs[l].name] = X[l]
+			input_feed[self.decoder_inputs[l].name] = X[l]
 			input_feed[self.target_weights[l].name] = np.array(target_weights)
 
 		if not forward_only:
@@ -330,17 +332,18 @@ def main(_):
 				step_time += (time.time() - start_time) / FLAGS.steps_per_checkpoint
 				loss += step_loss / FLAGS.steps_per_checkpoint
 				current_step += 1
+				print (current_step, step_loss, loss)
 
-				print(" validation ...")
 				if current_step % FLAGS.steps_per_checkpoint == 0:
+					print(" validation ...")
 					perplexity = math.exp(loss) if loss < 300 else float('inf')
 					print ("global step %d learning rate %.4f step-time %.2f perplexity "
-						"%.2f" % (model.global_step.eval(), model.learning_rate.eval(),
+						"%.2f" % (model_l[i].global_step.eval(), model_l[i].learning_rate.eval(),
 						step_time, perplexity))
 					previous_losses.append(loss)
 					# Save checkpoint and zero timer and loss.
 					checkpoint_path = os.path.join(FLAGS.train_dir, "sentiment.ckpt")
-					model.saver.save(sess, checkpoint_path, global_step=model.global_step)
+					model_l[i].saver.save(sess, checkpoint_path, global_step=model_l[i].global_step)
 					step_time, loss = 0.0, 0.0
 					# Run evals on development set and print their perplexity.
 					for bucket_id in xrange(len(unsup_buckets)):
@@ -349,10 +352,10 @@ def main(_):
 						eval_ppx = math.exp(eval_loss) if eval_loss < 300 else float('inf')
 						print("  eval: bucket %d perplexity %.2f" % (_bucket_id, eval_ppx))
 					sys.stdout.flush()
-				if (loss < 0.1) or (current_step < max_step):
-					print("unsupervised training done, global step %d, perplexity: %.2f, learning rate %.4f"
-						% (model.global_step.eval(), perplexity, model.learning_rate.eval()))
-					break
+					if (loss < 0.1) or (current_step > max_step):
+						print("unsupervised training done, global step %d, perplexity: %.2f, learning rate %.4f"
+							% (model_l[i].global_step.eval(), perplexity, model_l[i].learning_rate.eval()))
+						break
 
 
 
